@@ -1,8 +1,8 @@
 {
   "Nickname": "BlacksmithForgeWater",
   "Visibility": "Visible",
-  "OneLineDescription": "",
-  "LongDescription": "",
+  "OneLineDescription": "Places Blacksmith Forge Water",
+  "LongDescription": "Will place Blacksmith Forge Water in your game tailored to your load order. You can add additional forges as needed for mods that create their own forges.",
   "PreferredAutoVersioning": "Default",
   "RequiredMods": [],
   "TargetedReleases": [
