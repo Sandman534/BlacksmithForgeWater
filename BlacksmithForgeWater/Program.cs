@@ -9,6 +9,7 @@ using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Synthesis;
 using Mutagen.Bethesda.WPF.Reflection.Attributes;
 using Noggog;
+using System.Collections.Immutable;
 using System.Runtime.Serialization;
 using Activator = Mutagen.Bethesda.Skyrim.Activator;
 
@@ -91,7 +92,13 @@ namespace BlacksmithForgeWater
 
             // Get Forge List
             Console.WriteLine($"Processing Forges...");
-            foreach (var placed in state.LoadOrder.PriorityOrder.PlacedObject().WinningContextOverrides(state.LinkCache))
+
+            var forgeLookup = state.LoadOrder.PriorityOrder.PlacedObject()
+                .WinningContextOverrides(state.LinkCache)
+                .Where(x => BSWF_List.ContainsKey(x.Record.Base.FormKey))
+                .ToImmutableArray();
+
+            foreach (var placed in forgeLookup)
             {
                 if (BSWF_List.TryGetValue(placed.Record?.Base.FormKey ?? new FormKey(), out var waterActivator))
                 {
