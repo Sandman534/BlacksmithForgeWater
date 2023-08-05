@@ -35,11 +35,24 @@ namespace BlacksmithForgeWater
         };
     }
 
+    public class Forge
+    {
+        public FormKey Key { get; set; }
+        public PlacedObject Water { get; set; }
+
+        public Forge(FormKey cell, PlacedObject water)
+        {
+            Key = cell;
+            Water = water;
+        }
+    }
+
     public class Program
     {
         public static Lazy<Settings>? _settings = null!;
 
         private static readonly Dictionary<FormKey, Activator> BSWF_List = new();
+        private static readonly List<Forge> Forge_Match = new();
 
         public static async Task<int> Main(string[] args)
         {
@@ -50,25 +63,39 @@ namespace BlacksmithForgeWater
                 .Run(args);
         }
 
+        public static bool HasKey(FormKey cell, out List<PlacedObject> Objects)
+        {
+            var foundContext = Forge_Match.Where(x => x.Key == cell);
+            if (foundContext.Any())
+            {
+                Objects = new();
+                foreach (var obj in foundContext)
+                    Objects.Add(obj.Water);
+                
+                return true;
+            }
+            else
+            {
+                Objects = new();
+                return false;
+            }
+        }
+
         public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             int iForgeCounter = 0;
 
             // Forge Water Bounds
-            var forgeBounds = new ObjectBounds();
-            forgeBounds.First = new P3Int16(51, -92, 0);
-            forgeBounds.Second = new P3Int16(143, 13, 32);
-
-            // Forge Models
-            var forgeModel = new Model();
-            forgeModel.File = "clutter\\horsetrough\\horsetrough_bs2.nif";
-            var skyforgeModel = new Model();
-            skyforgeModel.File = "clutter\\horsetrough\\horsetrough_sf2.nif";
+            var forgeBounds = new ObjectBounds
+            {
+                First = new P3Int16(51, -92, 0),
+                Second = new P3Int16(143, 13, 32)
+            };
 
             // Create Forge Water Activator
             var forgeWater = state.PatchMod.Activators.AddNew();
             forgeWater.EditorID = "HorseTroughBS";
-            forgeWater.Model = forgeModel;
+            forgeWater.Model = new Model { File = "clutter\\horsetrough\\horsetrough_bs2.nif" };
             forgeWater.ObjectBounds = forgeBounds;
             forgeWater.WaterType = new FormLinkNullable<IWaterGetter>(FormKey.Factory("0F762D:Skyrim.esm"));
             forgeWater.Flags = Activator.Flag.NoDisplacement;
@@ -77,13 +104,13 @@ namespace BlacksmithForgeWater
             // Create Skyforge Water Activator
             var skyforgeWater = state.PatchMod.Activators.AddNew();
             skyforgeWater.EditorID = "HorseTroughSF";
-            skyforgeWater.Model = skyforgeModel;
+            skyforgeWater.Model = new Model { File = "clutter\\horsetrough\\horsetrough_sf2.nif" };
             skyforgeWater.ObjectBounds = forgeBounds;
             skyforgeWater.WaterType = new FormLinkNullable<IWaterGetter>(FormKey.Factory("0F762D:Skyrim.esm"));
             skyforgeWater.Flags = Activator.Flag.NoDisplacement;
             skyforgeWater.MarkerColor = System.Drawing.Color.FromArgb(204, 76, 51);
 
-            // Create Dictionary
+            // Create Dictionary Based on User Settings
             Console.WriteLine($"Getting Forges...");
             List<IFormLinkGetter<IFurnitureGetter>> forgeList = _settings != null ? _settings.Value.BlacksmithForgeList : new();
             List<IFormLinkGetter<IFurnitureGetter>> skyforgeList = _settings != null ? _settings.Value.BlacksmithSkyforgeList : new();
@@ -93,60 +120,59 @@ namespace BlacksmithForgeWater
             // Get Forge List
             Console.WriteLine($"Processing Forges...");
 
-            var forgeLookup = state.LoadOrder.PriorityOrder.PlacedObject()
-                .WinningContextOverrides(state.LinkCache)
-                .Where(x => BSWF_List.ContainsKey(x.Record.Base.FormKey))
-                .ToImmutableArray();
-
-            foreach (var placed in forgeLookup)
+            // Setup Water based on found forges
+            foreach (var placed in state.LoadOrder.PriorityOrder.PlacedObject().WinningContextOverrides(state.LinkCache))
             {
-                if (BSWF_List.TryGetValue(placed.Record?.Base.FormKey ?? new FormKey(), out var waterActivator))
+                if (placed.Record != null && BSWF_List.TryGetValue(placed.Record.Base.FormKey, out var waterActivator))
                 {
                     // Copy the Cell/World Record first and add Water flag
                     if (placed.TryGetParent<ICellGetter>(out var foundCell))
                     {
-                        var foundOverride = state.LoadOrder.PriorityOrder.Cell().WinningContextOverrides(state.LinkCache).SingleOrDefault(x => x.Record.FormKey == foundCell.FormKey);
-                        var WorkingCell = foundOverride?.GetOrAddAsOverride(state.PatchMod);
-                        if (WorkingCell != null)
-                        {
-                            WorkingCell.Flags |= Cell.Flag.HasWater;
-
-                            // Make a new object originating from the patch mod
+                            // Create new activator and Setup
                             var bsfwActivator = new PlacedObject(state.PatchMod);
-
-                            // Do whatever
-                            WorkingCell.Persistent.Add(bsfwActivator);
-
-                            // Set our base to the activator
                             bsfwActivator.Base.SetTo(waterActivator.FormKey);
-
-                            // Modify Editor ID
                             bsfwActivator.EditorID = "BSForgeWater_" + iForgeCounter.ToString();
-
-                            // Set Scale
                             bsfwActivator.Scale = placed.Record?.Scale;
 
                             // Set Enabled Parent info
-                            EnableParent bsfwParent = new EnableParent();
-                            bsfwParent.Flags = placed.Record?.EnableParent?.Flags ?? new EnableParent.Flag();
+                            EnableParent bsfwParent = new() { Flags = placed.Record?.EnableParent?.Flags ?? new EnableParent.Flag() };
                             bsfwParent.Reference.FormKey = placed.Record?.EnableParent?.Reference.FormKey ?? Skyrim.Npc.Player.FormKey;
                             bsfwActivator.EnableParent = bsfwParent;
 
                             // Position Data
-                            Placement bsfwPlacement = new Placement();
-                            bsfwPlacement.Position = placed.Record?.Placement?.Position ?? new Placement().Position;
-                            bsfwPlacement.Rotation = placed.Record?.Placement?.Rotation ?? new Placement().Rotation;
+                            Placement bsfwPlacement = new()
+                            {
+                                Position = placed.Record?.Placement?.Position ?? new Placement().Position,
+                                Rotation = placed.Record?.Placement?.Rotation ?? new Placement().Rotation
+                            };
                             bsfwActivator.Placement = bsfwPlacement;
 
-                            // Add original flags and add any flags from the original
+                            // Add Persitent flags and add any flags from the original
                             bsfwActivator.MajorRecordFlagsRaw = placed.Record?.MajorRecordFlagsRaw ?? 0;
                             bsfwActivator.MajorRecordFlagsRaw |= 0x400;
 
+                            // Add Water to Cell List
+                            Forge_Match.Add(new Forge(foundCell.FormKey, bsfwActivator));
+
+                            // Counter
                             iForgeCounter++;
-                        }
                     }
                 }   
             }
+
+            // Place forges in the override cells
+            foreach (var cell in state.LoadOrder.PriorityOrder.Cell().WinningContextOverrides(state.LinkCache))
+            {
+                if (cell.Record != null && HasKey(cell.Record.FormKey, out var WaterList))
+                {
+                    var WorkingCell = cell.GetOrAddAsOverride(state.PatchMod);
+                    WorkingCell.Flags |= Cell.Flag.HasWater;
+
+                    foreach(var water in WaterList)
+                        WorkingCell.Persistent.Add(water);
+                }
+            }
+    
             Console.WriteLine($"Found " + iForgeCounter + " forges");
         }
     }
